@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f6f5f2">
+<title>Night Safety Lab — interactive simulation</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1b; --muted:#6b6a66; --line:#e4e2dc;
+          --out:#d9822b; --leaving:#3b6fd8; --home:#2f8f5b; --alert:#c8372d; --r:14px; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:20px 16px 4px; max-width:1180px; margin:auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  header p { margin:0; color:var(--muted); font-size:14px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:14px 0 0; }
+  .clock { font-variant-numeric:tabular-nums; font-weight:600; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 12px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:12px; padding:10px 14px; min-height:44px; cursor:pointer; }
+  button.primary { background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.danger { background:var(--alert); color:#fff; border-color:var(--alert); }
+  button:disabled { opacity:.45; cursor:default; }
+  main { max-width:1180px; margin:auto; padding:12px 16px 40px; display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+  .phone { background:var(--card); border:1px solid var(--line); border-radius:22px; padding:14px; display:flex; flex-direction:column; gap:10px; min-height:380px; }
+  .phone h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--r); }
+  .pill { font-size:13px; font-weight:600; padding:3px 10px; border-radius:999px; color:#fff; }
+  .out { background:var(--out); } .leaving { background:var(--leaving); } .home { background:var(--home); }
+  .seg { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .seg button.on { outline:3px solid var(--ink); outline-offset:-3px; }
+  .nudge { background:#fff4e5; border:1px solid #f1c48a; border-radius:var(--r); padding:10px 12px; font-size:14px; }
+  .alert { background:#fdecea; border:1px solid #f0b4ae; border-radius:var(--r); padding:10px 12px; }
+  .alert b { color:var(--alert); }
+  .big { font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--muted); font-size:14px; }
+  ol.log { margin:0; padding-left:18px; font-size:13px; color:var(--muted); max-height:170px; overflow:auto; }
+  ol.log li { margin:2px 0; }
+  .med { font-size:14px; border:1px dashed var(--line); border-radius:var(--r); padding:10px 12px; }
+  .locked { color:var(--muted); }
+  footer { max-width:1180px; margin:auto; padding:0 16px 30px; color:var(--muted); font-size:13px; }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Night Safety Lab</h1>
+  <p>Browser-only simulation of the flows in the repo. In the real build, every rule shown here is enforced in Postgres (RLS + functions) and the timers run server-side on pg_cron.</p>
+  <div class="bar">
+    <span class="clock" id="clock">22:00</span>
+    <button id="ff">Skip 15 min ⏩</button>
+    <button id="reset">Reset</button>
+    <span class="muted">Simulated clock. One real second = one minute.</span>
+  </div>
+</header>
+
+<main>
+  <section class="phone" aria-label="Member">
+    <h2>Member · Bob</h2>
+    <div class="row"><span>Tonight · Roll Call</span><span class="muted" id="nudgeAt">nudge 01:00</span></div>
+    <div id="board"></div>
+    <hr style="border:0;border-top:1px solid var(--line);width:100%">
+    <div class="muted">Home By</div>
+    <div class="big" id="homeBy">—</div>
+    <div class="seg" style="grid-template-columns:1fr 1fr">
+      <button class="primary" id="armHB">Home By 23:00</button>
+      <button id="iAmHome">I'm home</button>
+    </div>
+    <div class="seg">
+      <button id="helpCall">Call me</button>
+      <button id="helpSend">Send team</button>
+      <button class="danger" id="help112">112</button>
+    </div>
+  </section>
+
+  <section class="phone" aria-label="Friends">
+    <h2>Friends · joined by link, name only</h2>
+    <div id="friends"></div>
+    <p class="muted">No account, no phone number. Each friend's link carries a secret that can change only their own status.</p>
+  </section>
+
+  <section class="phone" aria-label="Team dashboard">
+    <h2>Team dashboard</h2>
+    <div id="alerts"><p class="muted">No open alerts.</p></div>
+    <div class="med" id="med"><span class="locked">🔒 Medical information: encrypted. Available only during an open alert for this member.</span></div>
+    <button id="viewMed" disabled>View medical (reason required, logged)</button>
+    <div class="muted">Incident log</div>
+    <ol class="log" id="log"></ol>
+  </section>
+</main>
+<footer>Work sample, simulated data. Code, SQL tests and security notes: <a href="https://github.com/Drdr1/night-safety-lab">github.com/Drdr1/night-safety-lab</a>.</footer>
+
+<script>
+(() => {
+  const GRACE = 10; // minutes before the chosen contact is messaged
+  let s;
+  const $ = (id) => document.getElementById(id);
+  const fmt = (m) => { m = ((m % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+
+  function init() {
+    s = { t: 22 * 60, nudgeAt: 25 * 60, nudged: false,
+          friends: [{ n: 'Bob (you)', st: 'out', me: true }, { n: 'Sam', st: 'out' }, { n: 'Lea', st: 'out' }, { n: 'Marc', st: 'out' }],
+          hb: null, alert: null, log: [] };
+    render();
+  }
+  const log = (msg) => { s.log.unshift(fmt(s.t) + '  ' + msg); };
+
+  function tick(mins) {
+    for (let i = 0; i < mins; i++) {
+      s.t++;
+      // pg_cron: nudge_due_roll_calls()
+      if (!s.nudged && s.t >= s.nudgeAt) {
+        s.nudged = true;
+        const out = s.friends.filter((f) => f.st !== 'home');
+        out.forEach((f) => (f.nudged = true));
+        if (out.length) log('Roll Call nudge sent to ' + out.map((f) => f.n).join(', '));
+      }
+      // pg_cron: fire_overdue_home_by()
+      if (s.hb && s.hb.status === 'armed' && s.t >= s.hb.due) {
+        s.hb.status = 'missed';
+        s.alert = { kind: 'Home By missed', opened: s.t, step: 1, status: 'open' };
+        log('Home By missed. Team alerted, WhatsApp check-in sent to Bob.');
+      }
+      // pg_cron: escalate_home_by_alerts()
+      if (s.alert && s.alert.status === 'open' && s.alert.kind === 'Home By missed' && s.alert.step === 1 && s.t - s.alert.opened >= GRACE) {
+        s.alert.step = 2;
+        log('No reply after ' + GRACE + ' min. Contact Ana messaged.');
+      }
+    }
+    render();
+  }
+
+  function render() {
+    $('clock').textContent = fmt(s.t);
+    $('nudgeAt').textContent = 'nudge ' + fmt(s.nudgeAt) + (s.nudged ? ' · sent' : '');
+    $('board').innerHTML = s.friends.map((f) =>
+      `<div class="row"><span>${f.n}</span><span class="pill ${f.st}">${f.st[0].toUpperCase() + f.st.slice(1)}</span></div>`).join('');
+    $('friends').innerHTML = s.friends.filter((f) => !f.me).map((f, i) => `
+      <div class="row" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;justify-content:space-between"><b>${f.n}</b><span class="pill ${f.st}">${f.st[0].toUpperCase() + f.st.slice(1)}</span></div>
+        ${f.nudged && f.st !== 'home' ? '<div class="nudge">It\'s late. Are you home? Tap Home when you are.</div>' : ''}
+        <div class="seg">${['out', 'leaving', 'home'].map((st) =>
+          `<button data-f="${i + 1}" data-st="${st}" class="${f.st === st ? 'on' : ''}">${st[0].toUpperCase() + st.slice(1)}</button>`).join('')}</div>
+      </div>`).join('');
+
+    if (!s.hb) $('homeBy').textContent = '—';
+    else if (s.hb.status === 'armed') $('homeBy').textContent = fmt(s.hb.due) + ' · ' + (s.hb.due - s.t) + ' min';
+    else if (s.hb.status === 'missed') $('homeBy').innerHTML = '<span style="color:var(--alert)">Missed · team checking in</span>';
+    else $('homeBy').innerHTML = '<span style="color:var(--home)">Home ✓</span>';
+    $('armHB').disabled = !!(s.hb && s.hb.status === 'armed');
+
+    const a = s.alert;
+    $('alerts').innerHTML = a && a.status === 'open'
+      ? `<div class="alert"><b>${a.kind}</b> · Bob · since ${fmt(a.opened)}<br>
+         <span class="muted">${a.kind === 'Home By missed' ? (a.step === 1 ? 'Step 1: Bob messaged. Contact in ' + Math.max(0, GRACE - (s.t - a.opened)) + ' min.' : 'Step 2: contact Ana messaged.') : 'Member requested help.'}</span><br>
+         <span class="muted">112 summary: Bob, 22, safe phrase "blue umbrella", speaks EN/ES, last Roll Call: Out.</span></div>`
+      : '<p class="muted">No open alerts.</p>';
+    $('viewMed').disabled = !(a && a.status === 'open');
+    if (!(a && a.status === 'open') && !$('med').querySelector('.locked'))
+      $('med').innerHTML = '<span class="locked">🔒 Medical information: encrypted. Available only during an open alert for this member.</span>';
+    $('log').innerHTML = s.log.map((l) => `<li>${l}</li>`).join('') || '<li>Nothing yet.</li>';
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.f) {
+      const f = s.friends[+b.dataset.f]; f.st = b.dataset.st; if (f.st === 'home') f.nudged = false;
+      log(f.n + ' set status: ' + f.st + ' (pushed live to everyone)');
+      return render();
+    }
+    switch (b.id) {
+      case 'ff': return tick(15);
+      case 'reset': return init();
+      case 'armHB': s.hb = { due: s.t + 60, status: 'armed' }; log('Bob set Home By ' + fmt(s.hb.due) + ', contact: Ana'); return render();
+      case 'iAmHome':
+        s.friends[0].st = 'home';
+        if (s.hb && s.hb.status !== 'home') s.hb.status = 'home';
+        if (s.alert && s.alert.status === 'open' && s.alert.kind === 'Home By missed') { s.alert.status = 'resolved'; log('Bob tapped Home. Alert resolved automatically.'); }
+        else log('Bob tapped Home.');
+        return render();
+      case 'helpCall': case 'helpSend': case 'help112': {
+        const kind = { helpCall: 'Call me now', helpSend: 'Send a team member', help112: 'Going to 112' }[b.id];
+        s.alert = { kind, opened: s.t, step: 1, status: 'open' }; log('Help: ' + kind + '. Team notified.'); return render();
+      }
+      case 'viewMed': {
+        const why = prompt('Reason for viewing medical information (logged):', 'Briefing 112 dispatcher');
+        if (!why || !why.trim()) return;
+        log('Medical viewed by Night ops. Reason: ' + why.trim());
+        $('med').innerHTML = '<b>Allergies:</b> Penicillin<br><b>Medication:</b> Salbutamol inhaler<br><b>Blood type:</b> O−<br><span class="muted">Decrypted for this alert only. Bob can see this view in his access log.</span>';
+        return render();
+      }
+    }
+  });
+
+  init();
+  setInterval(() => tick(1), 1000);
+})();
+</script>
+</body>
+</html>
