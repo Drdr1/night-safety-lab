@@ -1,0 +1,26 @@
+{
+  "name": "night-safety-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Work sample: night-out safety PWA backend on Supabase — Roll Call, Home By, break-glass medical data, Stripe-driven access, WhatsApp outbox.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test:db": "./run-db-tests.sh",
+    "test:node": "node --experimental-strip-types --no-warnings --test test/*.test.ts",
+    "test": "npm run test:db && npm run test:node",
+    "typecheck": "tsc -p ."
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.23.1",
+    "stripe": "^23.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
+  }
+}
